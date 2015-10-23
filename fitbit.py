@@ -6,73 +6,103 @@ This library provides a wrapper to the FitBit API and does not provide storage o
 Most of the code has been adapted from: https://groups.google.com/group/fitbit-api/browse_thread/thread/0a45d0ebed3ebccb
 
 5/22/2012 - JCF - Updated to work with python-oauth2 https://github.com/dgouldin/python-oauth2
+10/22/2015 - JG - Removed use of oauth2 library (singing is not necessary anymore),
+                  updated to use /oauth2/ authentication infrastructure to get access to more stats.
 """
-import os, httplib
-import oauth2 as oauth
-import requests
+import os, base64, requests, urllib
 
-# pass oauth request to server (use httplib.connection passed in as param)
-# return response as a string
 class Fitbit():
-    CONSUMER_KEY    = ''
-    CONSUMER_SECRET = ''
-    SERVER = 'api.fitbit.com'
-    REQUEST_TOKEN_URL = 'http://%s/oauth/request_token' % SERVER
-    ACCESS_TOKEN_URL = 'http://%s/oauth/access_token' % SERVER
-    AUTHORIZATION_URL = 'http://%s/oauth/authorize' % SERVER
-    DEBUG = False
 
-    def FetchResponse(self, oauth_request, connection, url): #added URL as config. parameter
-        connection.request(oauth_request.method, url, headers=oauth_request.to_header()) #added headers to pass parameters
-        response = connection.getresponse()
-        s=response.read()
-        return s
+    # All information must be as on the https://dev.fitbit.com/apps page.
+    CLIENT_ID     = ''
+    CLIENT_SECRET = ''
+    REDIRECT_URI  = 'http://www.example.com'
 
-    def GetRequestToken(self):
-        connection = httplib.HTTPSConnection(self.SERVER)
-        consumer = oauth.Consumer(self.CONSUMER_KEY, self.CONSUMER_SECRET)
-        signature_method = oauth.SignatureMethod_PLAINTEXT()
-        oauth_request = oauth.Request.from_consumer_and_token(consumer, http_url=self.REQUEST_TOKEN_URL)
-        oauth_request.sign_request(signature_method, consumer, None)
-        resp = self.FetchResponse(oauth_request, connection, self.REQUEST_TOKEN_URL) #passing in explicit url
-        print resp
-        auth_token = oauth.Token.from_string(resp)
-        auth_url = "%s?oauth_token=%s" % (self.AUTHORIZATION_URL, auth_token.key) #build the URL
-        return auth_url, auth_token
+    # Decide which information the FitBit.py should have access to.
+    # Options: 'activity', 'heartrate', 'location', 'nutrition',
+    #          'profile', 'settings', 'sleep', 'social', 'weight'
+    API_SCOPES    = ('activity','heartrate','profile')
 
-    def GetAccessToken(self, access_code, auth_token, oauth_verifier):
-        auth_token = oauth.Token.from_string(auth_token)
-        oauth_verifier = oauth_verifier
-        connection = httplib.HTTPSConnection(self.SERVER)
-        consumer = oauth.Consumer(self.CONSUMER_KEY, self.CONSUMER_SECRET)
-        signature_method = oauth.SignatureMethod_PLAINTEXT()
-        oauth_request = oauth.Request.from_consumer_and_token(consumer, token=auth_token, http_url=self.ACCESS_TOKEN_URL, parameters={'oauth_verifier': oauth_verifier})
-        oauth_request.sign_request(signature_method, consumer, auth_token)
-        # now the token we get back is an access token
-        resp = self.FetchResponse(oauth_request, connection, self.ACCESS_TOKEN_URL)
-        access_token = oauth.Token.from_string(resp) # parse the response into an OAuthToken object / passingin explicit url
-        # store the access token when returning it
-        # access_token = access_token.to_string()
-        return access_token
+    # These settings should probably not be changed.
+    API_SERVER    = 'api.fitbit.com'
+    WWW_SERVER    = 'www.fitbit.com'
+    AUTHORIZE_URL = 'https://%s/oauth2/authorize' % WWW_SERVER
+    TOKEN_URL     = 'https://%s/oauth2/token' % API_SERVER
 
+    def GetAuthorizationUri(self):
+
+        # Parameters for authorization, make sure to select 
+        params = {
+            'client_id': self.CLIENT_ID,
+            'response_type':  'code',
+            'scope': ' '.self.API_SCOPES,
+            'redirect_uri': self.REDIRECT_URI
+        }
+
+        # Encode parameters and construct authorization url to be returned to user.
+        urlparams = urllib.urlencode(params)
+        return "%s?%s" % (self.AUTHORIZE_URL, urlparams)
+
+    # Tokes are requested based on access code. Access code must be fresh (10 minutes)
+    def GetAccessToken(self, access_code):
+
+        # Construct the authentication header
+        auth_header = base64.b64encode(self.CLIENT_ID + ':' + self.CLIENT_SECRET)
+        headers = {'Authorization': 'Basic %s' % auth_header}
+
+        # Paramaters for requesting tokens (auth + refresh)
+        params = {
+            'code': access_code,
+            'grant_type': 'authorization_code',
+            'client_id': self.CLIENT_ID,
+            'redirect_uri': self.REDIRECT_URI
+        }
+
+        # Place request
+        resp = requests.post(self.TOKEN_URL, data=params, headers=headers)
+
+        # Strip the goodies
+        access_token = str(resp.json()['access_token'])
+        refresh_token = str(resp.json()['refresh_token'])
+
+        return access_token, refresh_token
+
+    # Get new tokens based if authentication token is expired
+    def RefAccessToken(self, refresh_token):
+
+        # Construct the authentication header
+        auth_header = base64.b64encode(self.CLIENT_ID + ':' + self.CLIENT_SECRET)
+        headers = {'Authorization': 'Basic %s' % auth_header}
+
+        # Set up parameters for refresh request
+        params = {
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh_token
+        }
+
+        # Place request
+        resp = requests.post(self.TOKEN_URL, data=params, headers=headers)
+
+        # Distil
+        access_token = str(resp.json()['access_token'])
+        refresh_token = str(resp.json()['refresh_token'])
+
+        return access_token, refresh_token
+
+    # Place api call to retrieve data
     def ApiCall(self, access_token, apiCall='/1/user/-/activities/log/steps/date/today/1d.json'):
-        #other API Calls possible, or read the FitBit documentation for the full list.
-        #apiCall = '/1/user/-/devices.json'
-        #apiCall = '/1/user/-/profile.json'
-        #apiCall = '/1/user/-/activities/date/2011-06-17.json'
+        # Other API Calls possible, or read the FitBit documentation for the full list
+        # (https://dev.fitbit.com/docs/), e.g.:
+        # apiCall = '/1/user/-/devices.json'
+        # apiCall = '/1/user/-/profile.json'
+        # apiCall = '/1/user/-/activities/date/2015-10-22.json'
 
-        signature_method = oauth.SignatureMethod_PLAINTEXT()
-        connection = httplib.HTTPSConnection(self.SERVER)
-        #build the access token from a string
-        access_token = oauth.Token.from_string(access_token)
-        consumer = oauth.Consumer(self.CONSUMER_KEY, self.CONSUMER_SECRET)
-        final_url = 'http://' + self.SERVER + apiCall
-        oauth_request = oauth.Request.from_consumer_and_token(consumer, token=access_token, http_url=final_url)
-        oauth_request.sign_request(signature_method, consumer, access_token)
-        headers = oauth_request.to_header(realm='api.fitbit.com')
-        connection.request('GET', apiCall, headers=headers)
-        resp = connection.getresponse()
-        response = resp.read()
-        return response
+        headers = {'Authorization': 'Bearer %s' % access_token}
+
+        final_url = 'https://' + self.API_SERVER + apiCall
+
+        resp = requests.post(final_url, headers=headers)
+
+        return resp.json(), resp.status_code
 
 
