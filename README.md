@@ -22,14 +22,14 @@ The access code is part of the redirect URL as the ```code=[access_code]``` GET.
 
 Request an access and refresh token using the access code (you have 10 minutes)
 
-    access_token, refresh_token = z.GetAccessToken(access_code)
+    token = z.GetAccessToken(access_code)
 
-Store both tokens for later usage. You can now call the API with it:
+Individual tokens can be accessed as ```token['access_token']``` and ```token['refresh_token']```. Store tokens for later usage. You can now call the API with it:
 
-	response, status_code = z.ApiCall(access_token, apiCall='/1/user/-/activities/log/steps/date/today/7d.json')
+	response = z.ApiCall(token, '/1/user/-/activities/log/steps/date/today/7d.json')
 
-All responses for the functions are received in JSON but are also available in XML.
+```ApiCall``` will automatically try to refresh a token if expired. The (new) token is returned as ```response['token']```. All responses for the functions are received in JSON but are also available in XML.
 
-In case the access token has expired (```status_code```: ```401```) a new pair of tokens can be obtained using the refresh token
+In case the access token has expired (status ```401```) a new pair of tokens can be obtained using the refresh token
 
-    access_token, refresh_token = z.RefAccessToken(refresh_token)
+    token = z.RefAccessToken(token)

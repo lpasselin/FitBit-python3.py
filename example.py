@@ -1,29 +1,31 @@
-import fitbit
+import fitbit, json
+
+tokenfile = "user_settings.txt"
 
 z = fitbit.Fitbit();
 
-# Get the authorization URL for user to complete in browser.
-auth_url = z.GetAuthorizationUri()
-print "Please visit %s and approve the app." % auth_url
-
-# Set the access code that is part of the arguments of the callback URL FitBit redirects to.
-access_code = raw_input("Please enter code (from the URL you were redirected to): ")
-
-# Use the temporary access code to obtain a more permanent pair of tokens
-access_token, refresh_token = z.GetAccessToken(access_code)
+# Try to read existing token pair
+try:
+    token = json.load(open(tokenfile))
+except IOError:
+    # If not generate a new file
+    # Get the authorization URL for user to complete in browser.
+    auth_url = z.GetAuthorizationUri()
+    print "Please visit the link below and approve the app:\n %s" % auth_url
+    # Set the access code that is part of the arguments of the callback URL FitBit redirects to.
+    access_code = raw_input("Please enter code (from the URL you were redirected to): ")
+    # Use the temporary access code to obtain a more permanent pair of tokens
+    token = z.GetAccessToken(access_code)
+    # Save the token to a file
+    json.dump(token, open(tokenfile,'w'))
 
 # Sample API call
-response, status_code = z.ApiCall(access_token, '/1/user/-/profile.json')
+response = z.ApiCall(token, '/1/user/-/profile.json')
 
-if status_code == 200:
-    print "Looks like everything is working, right %s? " % response['user']['displayName']
-elif status_code == 404:
-    print "You requested an API that doesn't exist."
-elif status_code == 403:
-    print "You requested an API you don't have access to. Make sure to check the scope"
-elif status_code == 401:
-    print "The access token you provided has been expired let me refresh that for you."
-    # Refresh the access token with the refresh token if expired. Access tokens should be good for 1 hour.
-    access_token, refresh_token = z.RefAccessToken(refresh_token)
-else:
-    print "Oops. Something else went wrong (code %i), refer to the docs." % status_code
+# Token is part of the response. Note that the token pair can change when a refresh is necessary.
+# So we replace the current token with the response one and save it.
+token = response['token']
+json.dump(token, open(tokenfile,'w'))
+
+# Do something with the response
+print "Welcome %s!" % response['user']['displayName']
