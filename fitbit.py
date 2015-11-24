@@ -1,5 +1,5 @@
 """
-A Python library for accessing the FitBit API.
+A Python library for accessing the FitBit API on pyton3.
 
 This library provides a wrapper to the FitBit API and does not provide storage of tokens or caching if that is required.
 
@@ -8,6 +8,7 @@ Most of the code has been adapted from: https://groups.google.com/group/fitbit-a
 5/22/2012 - JCF - Updated to work with python-oauth2 https://github.com/dgouldin/python-oauth2
 10/22/2015 - JG - Removed use of oauth2 library (singing is not necessary anymore),
                   updated to use /oauth2/ authentication infrastructure to get access to more stats.
+11/24/2015 - LPA - Python3
 """
 import os, base64, requests, urllib
 
@@ -31,7 +32,7 @@ class Fitbit():
 
     def GetAuthorizationUri(self):
 
-        # Parameters for authorization, make sure to select 
+        # Parameters for authorization, make sure to select
         params = {
             'client_id': self.CLIENT_ID,
             'response_type':  'code',
@@ -40,16 +41,19 @@ class Fitbit():
         }
 
         # Encode parameters and construct authorization url to be returned to user.
-        urlparams = urllib.urlencode(params)
+        urlparams = urllib.parse.urlencode(params)
         return "%s?%s" % (self.AUTHORIZE_URL, urlparams)
 
     # Tokes are requested based on access code. Access code must be fresh (10 minutes)
     def GetAccessToken(self, access_code):
 
         # Construct the authentication header
-        auth_header = base64.b64encode(self.CLIENT_ID + ':' + self.CLIENT_SECRET)
+        auth_header_str = (self.CLIENT_ID + ':' + self.CLIENT_SECRET)
+        auth_header = base64.b64encode(auth_header_str.encode('utf-8'))
+        print(auth_header)#debug
+
         headers = {
-            'Authorization': 'Basic %s' % auth_header,
+            'Authorization': b'Basic ' + auth_header,
             'Content-Type' : 'application/x-www-form-urlencoded'
         }
 
@@ -67,6 +71,8 @@ class Fitbit():
         resp = resp.json()
 
         if status_code != 200:
+            print(params)
+            print('headers', headers)
             raise Exception("Something went wrong exchanging code for token (%s): %s" % (resp['errors'][0]['errorType'], resp['errors'][0]['message']))
 
         # Strip the goodies
@@ -80,9 +86,10 @@ class Fitbit():
     def RefAccessToken(self, token):
 
         # Construct the authentication header
-        auth_header = base64.b64encode(self.CLIENT_ID + ':' + self.CLIENT_SECRET)
+        auth_header_str = (self.CLIENT_ID + ':' + self.CLIENT_SECRET)
+        auth_header = base64.b64encode(auth_header_str.encode('utf-8'))
         headers = {
-            'Authorization': 'Basic %s' % auth_header,
+            'Authorization': b'Basic ' + auth_header,
             'Content-Type' : 'application/x-www-form-urlencoded'
         }
 
@@ -131,10 +138,9 @@ class Fitbit():
         if status_code == 200:
             return resp
         elif status_code == 401:
-            print "The access token you provided has been expired let me refresh that for you."
+            print("The access token you provided has been expired let me refresh that for you.")
             # Refresh the access token with the refresh token if expired. Access tokens should be good for 1 hour.
             token = self.RefAccessToken(token)
             self.ApiCall(token, apiCall)
         else:
             raise Exception("Something went wrong requesting (%s): %s" % (resp['errors'][0]['errorType'], resp['errors'][0]['message']))
-
